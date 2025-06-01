@@ -96,7 +96,7 @@ def main():
             st.rerun()
     
     # Main dashboard
-    tab1, tab2, tab3, tab4 = st.tabs(["📊 Dashboard", "📰 Articles", "🎯 Rankings", "📱 Social Media"])
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["📊 Dashboard", "📰 Articles", "🎯 Rankings", "📱 Social Media", "🗄️ Database"])
     
     with tab1:
         show_dashboard()
@@ -109,6 +109,9 @@ def main():
     
     with tab4:
         show_social_media_tab(min_score_threshold, max_posts_per_day)
+    
+    with tab5:
+        show_database_tab()
 
 def show_dashboard():
     # Key metrics
@@ -177,6 +180,27 @@ def show_dashboard():
             st.plotly_chart(fig, use_container_width=True)
         else:
             st.info("No source data available yet.")
+    
+    # Trending News Section
+    st.subheader("🔥 Trending News")
+    trending_articles = components['data_manager'].get_top_articles(limit=5)
+    
+    if not trending_articles.empty:
+        for idx, article in trending_articles.iterrows():
+            with st.container():
+                col1, col2 = st.columns([4, 1])
+                
+                with col1:
+                    st.markdown(f"**[{article['title'][:120]}...]({article.get('url', '#')})**")
+                    st.caption(f"Source: {article['source']} | Published: {article['published_date']}")
+                
+                with col2:
+                    score_color = "green" if article['score'] >= 7 else "orange" if article['score'] >= 5 else "red"
+                    st.markdown(f"<span style='color: {score_color}; font-weight: bold'>Score: {article['score']:.1f}</span>", unsafe_allow_html=True)
+                
+                st.divider()
+    else:
+        st.info("No trending articles available yet. Start scraping to see trending content!")
 
 def show_articles_tab():
     st.subheader("📰 Recent Articles")
@@ -407,6 +431,131 @@ def auto_post_top_articles():
             st.success(f"Auto-posted {posted_count} articles!")
     except Exception as e:
         st.error(f"Error in auto-posting: {str(e)}")
+
+def show_database_tab():
+    """Show database management and analytics"""
+    st.subheader("🗄️ Database Management")
+    
+    # Database Overview
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        st.metric("Total Articles", components['data_manager'].get_database_stats().get('total_articles', 0))
+    
+    with col2:
+        st.metric("Articles This Week", components['data_manager'].get_database_stats().get('articles_this_week', 0))
+    
+    with col3:
+        st.metric("Database Size", f"{components['data_manager'].get_database_stats().get('db_size_mb', 0):.1f} MB")
+    
+    # Database Actions
+    st.subheader("📋 Database Actions")
+    
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        if st.button("🔄 Backup Database", use_container_width=True):
+            backup_result = components['data_manager'].backup_database()
+            if backup_result:
+                st.success(f"Database backed up successfully to: {backup_result}")
+            else:
+                st.error("Failed to backup database")
+    
+    with col2:
+        cleanup_days = st.number_input("Days to keep", min_value=1, max_value=365, value=30)
+        if st.button("🗑️ Cleanup Old Data", use_container_width=True):
+            deleted_count = components['data_manager'].cleanup_old_articles(cleanup_days)
+            st.success(f"Cleaned up {deleted_count} old articles")
+            st.rerun()
+    
+    with col3:
+        if st.button("📊 Export Data", use_container_width=True):
+            export_file = components['data_manager'].export_to_csv()
+            if export_file:
+                st.success(f"Data exported to: {export_file}")
+                with open(export_file, 'rb') as file:
+                    st.download_button(
+                        label="Download CSV",
+                        data=file,
+                        file_name=export_file,
+                        mime='text/csv'
+                    )
+            else:
+                st.error("Failed to export data")
+    
+    # Article Status Distribution
+    st.subheader("📈 Article Status Distribution")
+    status_data = components['data_manager'].get_status_distribution()
+    
+    if not status_data.empty:
+        fig = px.pie(
+            status_data,
+            values='count',
+            names='status',
+            title="Articles by Status",
+            color_discrete_map={
+                'pending': '#FFA500',
+                'posted': '#28a745',
+                'rejected': '#dc3545',
+                'skipped': '#6c757d'
+            }
+        )
+        st.plotly_chart(fig, use_container_width=True)
+    
+    # Performance Analytics
+    st.subheader("⚡ Performance Analytics")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        # Daily processing volume
+        daily_stats = components['data_manager'].get_daily_processing_stats()
+        if not daily_stats.empty:
+            fig = px.line(
+                daily_stats,
+                x='date',
+                y='articles_processed',
+                title="Daily Article Processing Volume",
+                labels={'articles_processed': 'Articles Processed', 'date': 'Date'}
+            )
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("No daily processing data available yet")
+    
+    with col2:
+        # Source performance
+        source_performance = components['data_manager'].get_source_performance()
+        if not source_performance.empty:
+            fig = px.bar(
+                source_performance,
+                x='source',
+                y='avg_score',
+                title="Average Score by Source",
+                labels={'avg_score': 'Average Score', 'source': 'Source'}
+            )
+            fig.update_layout(xaxis_tickangle=45)
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("No source performance data available yet")
+    
+    # Recent Database Activity
+    st.subheader("🕐 Recent Database Activity")
+    recent_articles = components['data_manager'].get_articles(limit=10)
+    
+    if not recent_articles.empty:
+        display_columns = ['title', 'source', 'score', 'status', 'scraped_date']
+        recent_display = recent_articles[display_columns].copy()
+        recent_display['title'] = recent_display['title'].str[:60] + '...'
+        recent_display = recent_display.rename(columns={
+            'title': 'Title',
+            'source': 'Source',
+            'score': 'Score',
+            'status': 'Status',
+            'scraped_date': 'Scraped Date'
+        })
+        st.dataframe(recent_display, use_container_width=True)
+    else:
+        st.info("No recent articles in database")
 
 # Auto-refresh functionality
 if st.session_state.get('auto_refresh', False):

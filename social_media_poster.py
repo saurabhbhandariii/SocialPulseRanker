@@ -217,9 +217,27 @@ class SocialMediaPoster:
         try:
             # Extract from NLP analysis if available
             nlp_analysis = article.get('nlp_analysis', {})
-            topics = nlp_analysis.get('topics', [])
-            entities = nlp_analysis.get('entities', [])
-            keywords = nlp_analysis.get('keywords', [])
+            key_features = article.get('key_features', {})
+            
+            # Handle both nlp_analysis and key_features formats
+            if isinstance(nlp_analysis, str):
+                import json
+                try:
+                    nlp_analysis = json.loads(nlp_analysis)
+                except:
+                    nlp_analysis = {}
+            
+            if isinstance(key_features, str):
+                import json
+                try:
+                    key_features = json.loads(key_features)
+                except:
+                    key_features = {}
+            
+            # Get data from either source
+            topics = nlp_analysis.get('topics', []) or key_features.get('topics', [])
+            entities = nlp_analysis.get('entities', []) or key_features.get('entities', [])
+            keywords = nlp_analysis.get('keywords', []) or key_features.get('keywords', [])
             
             # Topic-based hashtags
             topic_hashtags = {

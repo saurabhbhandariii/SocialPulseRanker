@@ -442,6 +442,17 @@ class DataManager:
                 cursor.execute('SELECT COUNT(*) FROM articles')
                 total_articles = cursor.fetchone()[0]
                 
+                # Articles this week
+                cursor.execute('''
+                    SELECT COUNT(*) FROM articles 
+                    WHERE scraped_date >= datetime('now', '-7 days')
+                ''')
+                articles_this_week = cursor.fetchone()[0]
+                
+                # Database file size
+                db_size_bytes = os.path.getsize(self.db_path) if os.path.exists(self.db_path) else 0
+                db_size_mb = db_size_bytes / (1024 * 1024)
+                
                 # Articles by status
                 cursor.execute('''
                     SELECT status, COUNT(*) 
@@ -450,15 +461,108 @@ class DataManager:
                 ''')
                 status_counts = dict(cursor.fetchall())
                 
-                # Database size
-                db_size = os.path.getsize(self.db_path) if os.path.exists(self.db_path) else 0
-                
                 return {
                     'total_articles': total_articles,
-                    'status_breakdown': status_counts,
-                    'database_size_mb': round(db_size / (1024 * 1024), 2)
+                    'articles_this_week': articles_this_week,
+                    'db_size_mb': db_size_mb,
+                    'status_counts': status_counts
                 }
         
         except Exception as e:
             self.logger.error(f"Error getting database stats: {str(e)}")
-            return {}
+            return {
+                'total_articles': 0,
+                'articles_this_week': 0,
+                'db_size_mb': 0,
+                'status_counts': {}
+            }
+    
+    def backup_database(self) -> Optional[str]:
+        """Create a backup of the database"""
+        try:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            backup_filename = f"articles_backup_{timestamp}.db"
+            
+            import shutil
+            shutil.copy2(self.db_path, backup_filename)
+            
+            self.logger.info(f"Database backed up to {backup_filename}")
+            return backup_filename
+        
+        except Exception as e:
+            self.logger.error(f"Error backing up database: {str(e)}")
+            return None
+    
+    def export_to_csv(self) -> Optional[str]:
+        """Export articles data to CSV"""
+        try:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            csv_filename = f"articles_export_{timestamp}.csv"
+            
+            with sqlite3.connect(self.db_path) as conn:
+                query = '''
+                    SELECT id, title, url, source, published_date, scraped_date, 
+                           score, status, posted_date
+                    FROM articles 
+                    ORDER BY scraped_date DESC
+                '''
+                df = pd.read_sql_query(query, conn)
+                df.to_csv(csv_filename, index=False)
+            
+            self.logger.info(f"Data exported to {csv_filename}")
+            return csv_filename
+        
+        except Exception as e:
+            self.logger.error(f"Error exporting to CSV: {str(e)}")
+            return None
+    
+    def get_status_distribution(self) -> pd.DataFrame:
+        """Get article status distribution"""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                query = '''
+                    SELECT status, COUNT(*) as count
+                    FROM articles 
+                    GROUP BY status
+                    ORDER BY count DESC
+                '''
+                return pd.read_sql_query(query, conn)
+        except Exception as e:
+            self.logger.error(f"Error getting status distribution: {str(e)}")
+            return pd.DataFrame()
+    
+    def get_daily_processing_stats(self) -> pd.DataFrame:
+        """Get daily processing statistics"""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                query = '''
+                    SELECT DATE(scraped_date) as date, COUNT(*) as articles_processed
+                    FROM articles 
+                    WHERE scraped_date >= datetime('now', '-30 days')
+                    GROUP BY DATE(scraped_date)
+                    ORDER BY date
+                '''
+                return pd.read_sql_query(query, conn)
+        except Exception as e:
+            self.logger.error(f"Error getting daily processing stats: {str(e)}")
+            return pd.DataFrame()
+    
+    def get_source_performance(self) -> pd.DataFrame:
+        """Get performance statistics by source"""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                query = '''
+                    SELECT source, 
+                           COUNT(*) as total_articles,
+                           AVG(score) as avg_score,
+                           COUNT(CASE WHEN status = 'posted' THEN 1 END) as posted_count
+                    FROM articles 
+                    WHERE score > 0
+                    GROUP BY source
+                    HAVING COUNT(*) >= 5
+                    ORDER BY avg_score DESC
+                '''
+                return pd.read_sql_query(query, conn)
+        except Exception as e:
+            self.logger.error(f"Error getting source performance: {str(e)}")
+            return pd.DataFrame()
